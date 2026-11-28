@@ -1415,27 +1415,19 @@ function catalogFailed(error) {
   console.warn(`[quying] catalog store error: ${String((error && error.message) || error)}`);
 }
 
-// 数据库读超时兜底：Neon 冷启动偶尔要几秒，超过 2 秒就当作未命中，避免拖垮播放解析。
-function withTimeout(promise, ms, fallback) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-}
-
+// 数据库读写超时兜底：Neon 冷启动偶尔要几秒，超时就当未命中，避免拖住前台。
 async function readCatalogQuery(key) {
   if (!STORES.catalogStore) return null;
   try {
-    return await withTimeout(STORES.catalogStore.getQuery(key), 2000, null);
+    return await withTimeout(STORES.catalogStore.getQuery(key), 2000);
   } catch (error) { catalogFailed(error); return null; }
 }
 
 async function saveCatalogQuery(key, value, ttl) {
   if (!STORES.catalogStore) return false;
   try {
-    const done = await withTimeout(STORES.catalogStore.saveQuery(key, value, ttl).then(() => true), 4000, false);
-    if (!done) catalogFailed(new Error('save timeout'));
-    return done;
+    await withTimeout(STORES.catalogStore.saveQuery(key, value, ttl), 5000);
+    return true;
   } catch (error) { catalogFailed(error); return false; }
 }
 
