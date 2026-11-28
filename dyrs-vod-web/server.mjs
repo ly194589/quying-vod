@@ -1415,14 +1415,28 @@ function catalogFailed(error) {
   console.warn(`[quying] catalog store error: ${String((error && error.message) || error)}`);
 }
 
+// 数据库读超时兜底：Neon 冷启动偶尔要几秒，超过 2 秒就当作未命中，避免拖垮播放解析。
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 async function readCatalogQuery(key) {
   if (!STORES.catalogStore) return null;
-  try { return await STORES.catalogStore.getQuery(key); } catch (error) { catalogFailed(error); return null; }
+  try {
+    return await withTimeout(STORES.catalogStore.getQuery(key), 2000, null);
+  } catch (error) { catalogFailed(error); return null; }
 }
 
 async function saveCatalogQuery(key, value, ttl) {
   if (!STORES.catalogStore) return false;
-  try { await STORES.catalogStore.saveQuery(key, value, ttl); return true; } catch (error) { catalogFailed(error); return false; }
+  try {
+    const done = await withTimeout(STORES.catalogStore.saveQuery(key, value, ttl).then(() => true), 4000, false);
+    if (!done) catalogFailed(new Error('save timeout'));
+    return done;
+  } catch (error) { catalogFailed(error); return false; }
 }
 
 const catalogRefreshQueue = [];
@@ -2059,12 +2073,8 @@ async function fetchGuessPool(seeds, exclude) {
 // 先吃数据库里 12 小时有效的详情（含全集地址），命中就不回采集源。
 async function detailForPlay(id) {
   const key = `detail:${id}`;
-  const cached = await readCatalogQuery(key);
-  if (cached && !cached.stale) {
-    const row = (Array.isArray(cached.value && cached.value.list) ? cached.value.list : [])
-      .find((item) => String(item.vod_id) === String(id));
-    if (row) return row;
-  }
+  // 数据库里的详情存的是对外 /play.m3u8 链接，拿不到真实媒体地址，
+  // 播放解析仍回采集源；结果按 PLAY_URL_CACHE_TTL（30 分钟）留在实例内、边缘缓存 1 小时。
   const row = /^4kcz-\d{1,8}$/.test(id)
     ? await fetchFourkDetail(id)
     : MODU_ID_RE.test(id)
