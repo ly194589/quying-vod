@@ -2864,8 +2864,7 @@ async function handleRequest(req, res) {
         } catch (error) { return `err:${String((error && error.message) || error).slice(0, 80)}`; }
       })(),
       hasDbEnv: Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING || (process.env.PGHOST && process.env.PGUSER)),
-      disableDb: String(process.env.DISABLE_DB || ''),
-      dbHost: String((process.env.DATABASE_URL || process.env.POSTGRES_URL || '').replace(/:.+@/, ':***@')).slice(0, 60),      cacheTtl: { list: TTL.list, detail: TTL.detail },
+      cacheTtl: { list: TTL.list, detail: TTL.detail, play: PLAY_URL_CACHE_TTL },
     }, { sMaxAge: 10, maxAge: 5 });
     return;
   }
